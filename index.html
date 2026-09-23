@@ -1,0 +1,1610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="An Elo-rating model that predicts NFL game outcomes, with power rankings, matchup odds, spread and total picks, and a backtested accuracy report.">
+<style>*{box-sizing:border-box;}body{margin:0;}img{max-width:100%;}</style>
+<title>NFLBOT 1.3</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800;900&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  /* NFLBOT runs one committed look -- a dark tactical HUD -- rather than
+     switching palettes with the viewer's system theme. Every color below is
+     painted explicitly so it holds regardless of host theme. */
+  :root{
+    color-scheme: dark;
+    --bg:#05080C; --surface:#0B131B; --surface-2:#101B24;
+    --ink:#E4F6FF; --ink-muted:#7FA3B8; --ink-faint:#4C6577;
+    --line:rgba(0,229,255,0.16); --line-strong:rgba(0,229,255,0.36);
+    --accent:#00E5FF; --accent-ink:#7CF2FF;
+    --brand:#9D5CFF; --brand-strong:#C1A0FF;
+    --good:#19E8A6; --critical:#FF4B67;
+    --div-pos:#00E5FF; --div-neg:#FF9B3D; --div-mid:#33454F;
+    --series-1:#00E5FF; --series-2:#FF9B3D; --series-3:#9D5CFF;
+    --shadow:0 0 0 1px rgba(0,229,255,0.07), 0 14px 34px -16px rgba(0,0,0,0.8);
+    --glow-cyan:0 0 1px #00E5FF, 0 0 14px rgba(0,229,255,0.45);
+    --glow-violet:0 0 1px #9D5CFF, 0 0 14px rgba(157,92,255,0.45);
+    --radius:2px;
+    --cut:10px; --cut-sm:6px;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:'Rajdhani',system-ui,-apple-system,'Segoe UI',sans-serif;
+    padding-inline:16px; padding-block:0 40px;
+    background-image:
+      radial-gradient(ellipse 900px 480px at 50% -80px, rgba(0,229,255,0.10), transparent 70%),
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: auto, 100% 42px, 42px 100%;
+    background-attachment:local;
+  }
+  h1,h2,h3{font-family:'Orbitron',system-ui,sans-serif; font-weight:700; letter-spacing:.3px; margin:0; text-wrap:balance;}
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+  a{color:var(--accent-ink);}
+
+  .wrap{max-width:920px; margin:0 auto;}
+
+  /* ---------- header ---------- */
+  header{padding-block:28px 18px;}
+  .eyebrow{font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--brand-strong); font-weight:700; margin:0 0 8px;}
+  .eyebrow::before{content:"// "; color:var(--ink-faint);}
+  header h1{font-size:clamp(34px,7vw,54px); line-height:.95; color:var(--ink); text-shadow:0 0 22px rgba(0,229,255,0.28);}
+  header h1 em{font-style:normal; color:var(--accent); text-shadow:0 0 18px rgba(0,229,255,0.65);}
+  .sub{color:var(--ink-muted); font-size:15.5px; font-weight:500; max-width:60ch; margin-top:10px; line-height:1.55;}
+  .asof{
+    display:inline-flex; align-items:center; gap:8px; margin-top:16px;
+    background:var(--surface); border:1px solid var(--line-strong);
+    clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
+    padding:7px 14px 7px 11px; font-family:'JetBrains Mono',monospace; font-size:11.5px; letter-spacing:.03em; color:var(--ink-muted); box-shadow:var(--shadow);
+  }
+  .asof .dot{width:7px; height:7px; border-radius:50%; background:var(--good); flex:none; box-shadow:0 0 8px var(--good);}
+  .asof b{color:var(--ink); font-weight:700;}
+
+  /* ---------- nav ---------- */
+  nav{
+    position:sticky; top:env(safe-area-inset-top,0px); z-index:5;
+    display:flex; gap:8px; overflow-x:auto; padding:10px 0 14px;
+    background:var(--bg); background-image:inherit;
+  }
+  nav::-webkit-scrollbar{display:none;}
+  .tab{
+    font-family:'Orbitron',sans-serif; font-size:16px; font-weight:600; letter-spacing:.5px; text-transform:uppercase;
+    color:var(--ink-muted); background:var(--surface); border:1px solid var(--line-strong);
+    clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
+    padding:10px 20px 8px; cursor:pointer; flex:none;
+    transition:background .15s,color .15s,border-color .15s,box-shadow .15s;
+  }
+  .tab:hover{color:var(--ink); border-color:var(--accent);}
+  .tab[aria-selected="true"]{background:rgba(0,229,255,0.12); border-color:var(--accent); color:var(--accent-ink); box-shadow:var(--glow-cyan);}
+  .tab:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+
+  section.panel{display:flex; flex-direction:column; gap:18px;}
+
+  .card{
+    position:relative;
+    background:var(--surface); border:1px solid var(--line-strong);
+    clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut));
+    box-shadow:var(--shadow); padding:22px;
+  }
+  .card::before{
+    content:""; position:absolute; top:0; left:var(--cut); right:0; height:1px;
+    background:linear-gradient(90deg, var(--accent), transparent 55%); opacity:.8;
+  }
+  .card h2{font-size:25px; color:var(--ink); margin-bottom:2px; text-transform:uppercase; letter-spacing:.5px;}
+  .card .desc{color:var(--ink-muted); font-size:13.5px; font-weight:500; margin-bottom:14px; line-height:1.5;}
+
+  /* ---------- predict ---------- */
+  .matchup-controls{display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap;}
+  .field{display:flex; flex-direction:column; gap:5px; flex:1 1 200px; min-width:160px;}
+  .field label{font-size:11.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-faint); font-weight:700;}
+  select, .select-native{
+    font:inherit; font-family:'Rajdhani',sans-serif; font-weight:600; font-size:14.5px;
+    color:var(--ink); background:var(--surface-2); border:1px solid var(--line-strong);
+    border-radius:var(--radius); padding:10px 12px; appearance:none;
+    background-image:linear-gradient(45deg, transparent 50%, var(--accent) 50%), linear-gradient(135deg, var(--accent) 50%, transparent 50%);
+    background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+    background-size:5px 5px, 5px 5px; background-repeat:no-repeat;
+    transition:border-color .15s;
+  }
+  select:hover, select:focus{border-color:var(--accent);}
+  input[type="number"]{
+    font:inherit; font-family:'JetBrains Mono',monospace; font-weight:600; font-size:14.5px;
+    color:var(--ink); background:var(--surface-2); border:1px solid var(--line-strong);
+    border-radius:var(--radius); padding:10px 12px; width:100%;
+    transition:border-color .15s;
+  }
+  input[type="number"]:hover, input[type="number"]:focus{border-color:var(--accent);}
+  .line-btn{
+    font-family:'Rajdhani',sans-serif; font-size:12.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--accent-ink);
+    background:color-mix(in srgb, var(--accent) 12%, transparent); border:1px solid var(--line-strong);
+    border-radius:var(--radius); padding:0 14px; height:38px; cursor:pointer; flex:none; white-space:nowrap;
+    transition:background .15s, border-color .15s;
+  }
+  .line-btn:hover{background:color-mix(in srgb, var(--accent) 22%, transparent); border-color:var(--accent);}
+  .at-swap{
+    display:flex; align-items:center; justify-content:center; width:38px; height:38px;
+    border-radius:50%; border:1px solid var(--line-strong); background:var(--surface-2);
+    color:var(--accent-ink); font-family:'Orbitron',sans-serif; font-size:16px; cursor:pointer; flex:none;
+    transition:box-shadow .15s, border-color .15s;
+  }
+  .at-swap:hover{border-color:var(--accent); box-shadow:var(--glow-cyan);}
+  .neutral-toggle{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-muted); margin-top:14px;}
+  .neutral-toggle input{width:16px; height:16px; accent-color:var(--brand);}
+
+  .qb-panel{background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; margin-top:12px;}
+  .qb-panel-head{display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); margin-bottom:8px;}
+  .qb-panel-head .qb-hint{text-transform:none; font-weight:500; letter-spacing:0; font-size:11px; color:var(--ink-faint);}
+  .qb-panel-row{display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap;}
+  .qb-check{display:flex; align-items:center; gap:7px; font-size:13px; color:var(--ink-muted); font-weight:600;}
+  .qb-check input{width:16px; height:16px; accent-color:var(--accent); flex:none;}
+  .qb-panel .field label{font-size:10px;}
+  .qb-panel input[type="number"]{padding:7px 8px; font-size:13px;}
+
+  .qb-toggle-row{display:flex; gap:14px; flex-wrap:wrap; margin-top:12px; padding-top:12px; border-top:1px dashed var(--line);}
+  .qb-toggle-row .qb-check{font-size:12px;}
+
+  .scoreboard{
+    margin-top:20px; border-top:1px solid var(--line); padding-top:20px;
+  }
+  .sb-row{display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;}
+  .team-chip{display:flex; align-items:center; gap:10px; min-width:0;}
+  .swatch{width:14px; height:14px; flex:none; box-shadow:inset 0 0 0 1px rgba(0,0,0,.4), 0 0 6px rgba(0,229,255,0.25); clip-path:polygon(3px 0,100% 0,100% calc(100% - 3px),calc(100% - 3px) 100%,0 100%,0 3px);}
+  .team-chip .names{min-width:0;}
+  .team-chip .code{font-family:'Orbitron',sans-serif; font-size:22px; font-weight:600; line-height:1;}
+  .team-chip .full{font-size:11.5px; color:var(--ink-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .sb-prob{font-family:'Orbitron',sans-serif; font-size:40px; font-weight:700; line-height:1; text-shadow:0 0 20px currentColor; opacity:.95;}
+
+  .splitbar{display:flex; gap:2px; height:14px; overflow:hidden; margin:14px 0 8px; background:var(--surface-2); border:1px solid var(--line);}
+  .splitbar > span{height:100%; transition:width .3s ease; filter:saturate(1.15);}
+
+  .stat-row{display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;}
+  .mini-stat{flex:1 1 130px; background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px;}
+  .mini-stat .k{font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-faint); font-weight:700;}
+  .mini-stat .v{font-family:'JetBrains Mono',monospace; font-size:16px; font-weight:600; margin-top:3px;}
+
+  .favorite-line{display:flex; align-items:center; gap:8px; margin-top:14px; font-size:13.5px; color:var(--ink-muted);}
+  .favorite-line b{color:var(--ink);}
+  .pill{display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; padding:3px 9px; border-radius:var(--radius); text-transform:uppercase; letter-spacing:.04em;}
+  .pill.accent{background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent-ink); border:1px solid color-mix(in srgb, var(--accent) 45%, transparent);}
+
+  /* ---------- rankings ---------- */
+  .rank-row{display:grid; grid-template-columns:26px 130px 1fr 62px; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--line);}
+  .rank-row:last-child{border-bottom:none;}
+  .rank-row .rnum{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--ink-faint); text-align:right;}
+  .rank-row .team-chip .code{font-size:19px;}
+  .rank-row .team-chip .full{display:none;}
+  @media (min-width:560px){ .rank-row .team-chip .full{display:block;} .rank-row{grid-template-columns:26px 190px 1fr 62px;} }
+  .divbar-track{position:relative; height:14px; background:var(--surface-2); border:1px solid var(--line); overflow:hidden;}
+  .divbar-mid{position:absolute; top:0; bottom:0; width:1px; background:var(--line-strong);}
+  .divbar-fill{position:absolute; top:1px; bottom:1px;}
+  .rank-row .elo-val{font-family:'JetBrains Mono',monospace; font-size:13px; text-align:right;}
+  .divbar-axis{display:flex; justify-content:center; font-size:10.5px; color:var(--ink-faint); margin:4px 0 10px; font-family:'JetBrains Mono',monospace;}
+
+  /* ---------- week ---------- */
+  .subhead{font-size:19px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink); margin-top:20px; padding-top:16px; border-top:1px solid var(--line);}
+  .pick-tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px;}
+  .pick-card{background:var(--surface-2); border:1px solid var(--line); border-left:3px solid var(--accent); padding:13px 14px;}
+  .pick-card-best{box-shadow:0 0 0 1px var(--accent), var(--glow-cyan);}
+  .pick-card .pk-market{display:flex; align-items:center; flex-wrap:wrap; gap:4px; font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-faint); font-weight:700;}
+  .pick-card .pk-team{display:flex; align-items:center; gap:8px; margin-top:7px;}
+  .pick-card .pk-team .code{font-family:'Orbitron',sans-serif; font-size:22px; font-weight:600; line-height:1;}
+  .pick-card .pk-vs{font-size:11.5px; color:var(--ink-faint); margin-top:5px;}
+  .pick-card .pk-prob{font-family:'Orbitron',sans-serif; font-size:28px; font-weight:600; margin-top:6px; color:var(--accent-ink);}
+  .pick-card .pk-prob span{font-size:12px; color:var(--ink-muted); font-family:'Rajdhani',sans-serif; font-weight:600; margin-left:4px;}
+  .week-controls{display:flex; gap:10px; flex-wrap:wrap;}
+  .game-card{
+    border:1px solid var(--line-strong); padding:14px 16px; background:var(--surface-2);
+    clip-path:polygon(var(--cut-sm) 0,100% 0,100% calc(100% - var(--cut-sm)),calc(100% - var(--cut-sm)) 100%,0 100%,0 var(--cut-sm));
+  }
+  .game-top{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;}
+  .game-teams{display:flex; align-items:center; gap:14px; flex-wrap:wrap;}
+  .vs{color:var(--ink-faint); font-family:'Orbitron',sans-serif; font-size:16px;}
+  .status-pill{font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:700; letter-spacing:.06em; padding:3px 8px; border-radius:var(--radius);}
+  .status-pill.final{background:var(--surface); color:var(--ink-muted); border:1px solid var(--line-strong);}
+  .status-pill.upcoming{background:color-mix(in srgb, var(--brand) 18%, transparent); color:var(--brand-strong); border:1px solid color-mix(in srgb, var(--brand) 45%, transparent);}
+  .call{display:flex; align-items:center; gap:6px; font-size:12px; margin-top:4px; font-weight:600;}
+  .call.good{color:var(--good);} .call.bad{color:var(--critical);}
+  .game-card .splitbar{margin:12px 0 6px;}
+  .game-prob-row{display:flex; justify-content:space-between; font-size:12px; color:var(--ink-muted); font-family:'JetBrains Mono',monospace;}
+  .score-line{font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--ink-muted); margin-top:2px;}
+  .ats-block{margin-top:12px; padding-top:12px; border-top:1px dashed var(--line);}
+  .ats-head{display:flex; justify-content:space-between; align-items:center; font-size:11px; text-transform:uppercase; letter-spacing:.06em; font-weight:700; color:var(--ink-faint); margin-bottom:8px;}
+  .ats-head .src{font-family:'JetBrains Mono',monospace; text-transform:none; letter-spacing:0;}
+  .ats-line-row{display:flex; align-items:center; gap:8px;}
+  .ats-line-label{font-size:11px; color:var(--ink-faint); font-weight:700; text-transform:uppercase; letter-spacing:.06em; flex:none;}
+  .ats-line-input{width:76px!important; flex:none; padding:7px 8px!important; font-size:13.5px!important;}
+  .reset-line-btn{height:32px; padding:0 10px; font-size:11.5px;}
+  .ats-line-hint{font-size:10.5px; color:var(--ink-faint); margin:6px 0 10px; line-height:1.4;}
+  .ats-verdict{font-size:12.5px; color:var(--ink-muted); margin-top:6px;}
+  .ats-verdict b{color:var(--ink);}
+
+  /* ---------- accuracy ---------- */
+  .stat-tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px;}
+  .tile{background:var(--surface-2); border:1px solid var(--line); padding:14px;}
+  .tile .k{font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-faint); font-weight:700;}
+  .tile .v{font-family:'Orbitron',sans-serif; font-size:32px; font-weight:600; margin-top:2px;}
+  .tile .note{font-size:11px; color:var(--ink-faint); margin-top:2px;}
+
+  .legend{display:flex; gap:16px; font-size:12px; color:var(--ink-muted); margin:14px 0 4px; flex-wrap:wrap;}
+  .legend .lk{display:flex; align-items:center; gap:6px;}
+  .legend .ln{width:16px; height:0; border-top:2.5px solid var(--brand);}
+  .legend .ln.dash{border-top:2px dashed var(--ink-faint);}
+  .legend .ln.s1{border-top-color:var(--series-1);}
+  .legend .ln.s2{border-top-color:var(--series-2);}
+  .legend .ln.s3{border-top-color:var(--series-3);}
+
+  .chart-wrap{position:relative;}
+  svg.chart{width:100%; height:auto; display:block; overflow:visible;}
+  .axis-text{font-family:'JetBrains Mono',monospace; font-size:10px; fill:var(--ink-faint);}
+  .gridline{stroke:var(--line); stroke-width:1;}
+  .crosshair{stroke:var(--ink-faint); stroke-width:1; stroke-dasharray:3 3; pointer-events:none;}
+
+  .track-record{margin-top:18px; padding-top:18px; border-top:1px solid var(--line);}
+  .tr-tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:6px;}
+  .tr-tile{background:var(--surface-2); border:1px solid var(--line); border-left:3px solid var(--series-1); padding:12px 14px;}
+  .tr-tile.s2{border-left-color:var(--series-2);}
+  .tr-tile.s3{border-left-color:var(--series-3);}
+  .tr-tile .k{font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-faint); font-weight:700;}
+  .tr-tile .v{font-family:'Orbitron',sans-serif; font-size:26px; font-weight:600; margin-top:2px;}
+  .tr-tile .note{font-size:11px; color:var(--ink-faint); margin-top:2px;}
+  .tooltip{
+    position:absolute; pointer-events:none; background:var(--surface); color:var(--accent-ink);
+    border:1px solid var(--accent); box-shadow:var(--glow-cyan);
+    font-size:11.5px; padding:6px 9px; border-radius:var(--radius); transform:translate(-50%,-115%);
+    white-space:nowrap; opacity:0; transition:opacity .1s; font-family:'JetBrains Mono',monospace; z-index:3;
+  }
+  .tooltip.show{opacity:1;}
+
+  footer{margin-top:30px; padding-top:18px; border-top:1px solid var(--line-strong); font-size:12px; color:var(--ink-faint); line-height:1.6;}
+  footer a{color:var(--accent-ink); text-decoration:underline;}
+
+  [hidden]{display:none!important;}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Elo prediction engine</p>
+    <h1>NFLBOT <em>1.3</em></h1>
+    <p class="sub">A power-rating model for every NFL team, built the way FiveThirtyEight built theirs: start everyone even, move ratings after every final based on the score and the surprise, and let twenty-six years of results settle where each team stands.</p>
+    <div class="asof" id="asof-badge"><span class="dot"></span> loading current ratings&hellip;</div>
+  </header>
+
+  <nav id="tabs">
+    <button class="tab" data-tab="predict" aria-selected="true">Predict</button>
+    <button class="tab" data-tab="rankings" aria-selected="false">Rankings</button>
+    <button class="tab" data-tab="week" aria-selected="false">Week</button>
+    <button class="tab" data-tab="accuracy" aria-selected="false">Accuracy</button>
+  </nav>
+
+  <!-- PREDICT -->
+  <section class="panel" id="panel-predict">
+    <div class="card">
+      <h2>Matchup predictor</h2>
+      <p class="desc">Pick a home team and an away team to see the model's win probability for that game today.</p>
+      <div class="matchup-controls">
+        <div class="field">
+          <label for="sel-away">Away</label>
+          <select id="sel-away"></select>
+        </div>
+        <button class="at-swap" id="btn-swap" title="Swap home/away" aria-label="Swap home and away teams">&#8646;</button>
+        <div class="field">
+          <label for="sel-home">Home</label>
+          <select id="sel-home"></select>
+        </div>
+      </div>
+      <label class="neutral-toggle"><input type="checkbox" id="chk-neutral"> Neutral site (no home-field bonus)</label>
+
+      <div class="qb-panel">
+        <div class="qb-panel-head">
+          <span>Backup / injured QB &mdash; manual override</span>
+          <span class="qb-hint">no live injury feed reaches this page, so this is set by hand</span>
+        </div>
+        <div class="qb-panel-row">
+          <label class="qb-check"><input type="checkbox" id="chk-qb-away"> Away starter out</label>
+          <label class="qb-check"><input type="checkbox" id="chk-qb-home"> Home starter out</label>
+          <div class="field" style="max-width:130px; margin-left:auto;">
+            <label for="inp-qb-penalty">Impact (pts)</label>
+            <input type="number" id="inp-qb-penalty" step="0.5" min="0" max="10" value="4.0">
+          </div>
+        </div>
+      </div>
+
+      <div class="scoreboard">
+        <div class="sb-row">
+          <div class="team-chip" id="chip-away"></div>
+          <div class="sb-prob" id="prob-away">&mdash;</div>
+        </div>
+        <div class="splitbar" id="predict-splitbar"><span></span><span></span></div>
+        <div class="sb-row">
+          <div class="team-chip" id="chip-home"></div>
+          <div class="sb-prob" id="prob-home">&mdash;</div>
+        </div>
+      </div>
+
+      <div class="favorite-line" id="favorite-line"></div>
+
+      <div class="stat-row">
+        <div class="mini-stat"><div class="k">Away Elo</div><div class="v mono" id="elo-away">&mdash;</div></div>
+        <div class="mini-stat"><div class="k">Home Elo</div><div class="v mono" id="elo-home">&mdash;</div></div>
+        <div class="mini-stat"><div class="k">Implied spread</div><div class="v mono" id="implied-spread">&mdash;</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Against the spread</h2>
+      <p class="desc">Enter a sportsbook line and see which side the model gives a better chance of covering, using a normal-distribution estimate of NFL scoring margins fitted to every game since 1999.</p>
+      <div class="matchup-controls">
+        <div class="field" style="max-width:220px;">
+          <label for="inp-spread">Home team favored by (pts)</label>
+          <input type="number" id="inp-spread" step="0.5">
+        </div>
+        <button class="line-btn" id="btn-fair-spread" type="button">Use model's line</button>
+      </div>
+      <div class="scoreboard" style="margin-top:16px; padding-top:16px;">
+        <div class="sb-row">
+          <div class="team-chip" id="ats-chip-away"></div>
+          <div class="sb-prob" id="ats-prob-away">&mdash;</div>
+        </div>
+        <div class="splitbar" id="ats-splitbar"><span></span><span></span></div>
+        <div class="sb-row">
+          <div class="team-chip" id="ats-chip-home"></div>
+          <div class="sb-prob" id="ats-prob-home">&mdash;</div>
+        </div>
+      </div>
+      <div class="ats-verdict" id="ats-verdict"></div>
+    </div>
+
+    <div class="card">
+      <h2>Total points</h2>
+      <p class="desc">Enter an over/under line and see which side the model favors, from a scoring-rate model of each team's own points-for and points-against.</p>
+      <div class="matchup-controls">
+        <div class="field" style="max-width:220px;">
+          <label for="inp-total">Total line (O/U)</label>
+          <input type="number" id="inp-total" step="0.5" min="0">
+        </div>
+        <button class="line-btn" id="btn-fair-total" type="button">Use model's total</button>
+      </div>
+      <div class="scoreboard" style="margin-top:16px; padding-top:16px;">
+        <div class="sb-row">
+          <div class="team-chip"><span class="swatch" style="background:var(--div-neg)"></span><span class="names"><span class="code">Under</span></span></div>
+          <div class="sb-prob" id="total-prob-under">&mdash;</div>
+        </div>
+        <div class="splitbar" id="total-splitbar"><span></span><span></span></div>
+        <div class="sb-row">
+          <div class="team-chip"><span class="swatch" style="background:var(--div-pos)"></span><span class="names"><span class="code">Over</span></span></div>
+          <div class="sb-prob" id="total-prob-over">&mdash;</div>
+        </div>
+      </div>
+      <div class="ats-verdict" id="total-verdict"></div>
+      <div class="stat-row">
+        <div class="mini-stat"><div class="k">Model total</div><div class="v mono" id="total-model-value">&mdash;</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RANKINGS -->
+  <section class="panel" id="panel-rankings" hidden>
+    <div class="card">
+      <h2>Power rankings</h2>
+      <p class="desc">All 32 teams by current Elo rating. Bars show how far above or below the league-average rating (1500) each team sits.</p>
+      <div class="divbar-axis"><span>&larr; below average</span><span style="margin:0 auto;">1500</span><span>above average &rarr;</span></div>
+      <div id="rank-list"></div>
+    </div>
+  </section>
+
+  <!-- WEEK -->
+  <section class="panel" id="panel-week" hidden>
+    <div class="card">
+      <h2>Week slate</h2>
+      <p class="desc">Every game in a given week, with the model's pick to win and, below it, which side the model likes against the spread &mdash; the real closing line when one exists, its own fair-value line otherwise. Edit any line to see how the model's confidence shifts.</p>
+      <div class="week-controls">
+        <div class="field" style="flex:0 0 130px;">
+          <label for="sel-season">Season</label>
+          <select id="sel-season"></select>
+        </div>
+        <div class="field" style="flex:0 0 130px;">
+          <label for="sel-week">Week</label>
+          <select id="sel-week"></select>
+        </div>
+      </div>
+
+      <h3 class="subhead">Most confident game winners</h3>
+      <p class="desc">The week's three outright winner picks with the highest win probability.</p>
+      <div class="pick-tiles" id="confident-winners"></div>
+
+      <h3 class="subhead">Most confident spread picks</h3>
+      <p class="desc">Up to three spread picks against real closing lines &mdash; only games where the model and the market disagree by at least 3 points make the list, since backtesting shows anything closer is a coin flip. Fewer than three shown means fewer than three qualified.</p>
+      <div class="pick-tiles" id="closest-calls"></div>
+
+      <h3 class="subhead">Most confident totals</h3>
+      <p class="desc">Up to three over/under picks against real closing lines, same rule: only a real disagreement with the market qualifies (at least 1 point here, since totals carry a smaller and noisier edge than spreads &mdash; see the footer).</p>
+      <div class="pick-tiles" id="confident-totals"></div>
+    </div>
+
+    <div class="card">
+      <h2>Track record</h2>
+      <p class="desc">How the model's most-confident picks in each category have actually done, every week since the data begins &mdash; scored walk-forward, using only what the model knew before kickoff. The single top-ranked pick each week ("Best bet") has historically outperformed the 2nd and 3rd by a wide margin; the tiles below blend all three together.</p>
+      <div class="tr-tiles">
+        <div class="tr-tile s1"><div class="k">Winners</div><div class="v mono" id="tr-winners">&mdash;</div><div class="note" id="tr-winners-note"></div></div>
+        <div class="tr-tile s2"><div class="k">Spread</div><div class="v mono" id="tr-spread">&mdash;</div><div class="note" id="tr-spread-note"></div></div>
+        <div class="tr-tile s3"><div class="k">Totals</div><div class="v mono" id="tr-totals">&mdash;</div><div class="note" id="tr-totals-note"></div></div>
+      </div>
+      <div class="legend">
+        <span class="lk"><span class="ln s1"></span> Winners (net hits)</span>
+        <span class="lk"><span class="ln s2"></span> Spread (net hits)</span>
+        <span class="lk"><span class="ln s3"></span> Totals (net hits)</span>
+      </div>
+      <div class="chart-wrap">
+        <svg class="chart" id="tr-chart" viewBox="0 0 640 220" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="tooltip" id="tr-tooltip"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Full slate</h2>
+      <div id="week-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+    </div>
+  </section>
+
+  <!-- ACCURACY -->
+  <section class="panel" id="panel-accuracy" hidden>
+    <div class="card">
+      <h2>Model accuracy</h2>
+      <p class="desc">Walk-forward backtest: every probability below is what the model said <em>before</em> that game was played, never in hindsight.</p>
+      <div class="field" style="max-width:220px; margin-bottom:14px;">
+        <label for="sel-startseason">Since season</label>
+        <select id="sel-startseason"></select>
+      </div>
+      <div class="stat-tiles">
+        <div class="tile"><div class="k">Pick accuracy</div><div class="v mono" id="acc-value">&mdash;</div><div class="note" id="acc-note"></div></div>
+        <div class="tile"><div class="k">vs. home baseline</div><div class="v mono" id="acc-baseline">&mdash;</div><div class="note">always picking the home team</div></div>
+        <div class="tile"><div class="k">Log loss</div><div class="v mono" id="acc-logloss">&mdash;</div><div class="note">lower is better</div></div>
+        <div class="tile"><div class="k">Brier score</div><div class="v mono" id="acc-brier">&mdash;</div><div class="note">lower is better</div></div>
+        <div class="tile"><div class="k">Against the spread</div><div class="v mono" id="acc-ats">&mdash;</div><div class="note" id="acc-ats-note">vs. closing lines</div></div>
+        <div class="tile"><div class="k">Total (O/U)</div><div class="v mono" id="acc-total">&mdash;</div><div class="note" id="acc-total-note">vs. closing lines</div></div>
+      </div>
+
+      <div class="legend">
+        <span class="lk"><span class="ln"></span> Elo model, by season</span>
+        <span class="lk"><span class="ln dash"></span> home-favorite baseline</span>
+      </div>
+      <div class="chart-wrap">
+        <svg class="chart" id="acc-chart" viewBox="0 0 640 220" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="tooltip" id="acc-tooltip"></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p style="margin:0 0 10px;">Ratings are computed client-side from every NFL regular-season and playoff result since 1999 (via the public <a href="https://github.com/nflverse/nfldata" target="_blank" rel="noopener">nflverse</a> game log, including Pro-Football-Reference's closing spread and total lines), embedded in this page as a fixed snapshot &mdash; reopen the source chat to refresh it with newer results. Home-field advantage (+48 Elo), a margin-of-victory multiplier, and 1/3 season-to-season regression to the mean all follow FiveThirtyEight's published NFL Elo methodology. Spread calls model final margin as normally distributed around the Elo-implied line. Total-points calls run a separate points-for/points-against rating per team and model the combined score the same way, recalibrated against a small but persistent bias (the raw model ran about six tenths of a point hot on totals) and slowed down to a 5%-per-game learning rate, which backtests cleaner than the faster rate this page originally shipped with.</p>
+    <p style="margin:0;">On why the spread and total picks won't hit the high-50s: backtesting every closing line since 1999 shows this model's own edge is real but thin &mdash; about 51% straight-up against the spread and roughly a coin flip on totals, both essentially in line with how efficient the closing NFL market is by kickoff. The published benchmark for a considerably more sophisticated public model (<a href="https://www.nfeloapp.com/games/nfl-model-performance/" target="_blank" rel="noopener">nfelo</a>, which layers in QB-adjusted ratings) is 55.24% against closing lines &mdash; and that's with real information (starter changes, injuries) this page doesn't have. The one place a genuine edge shows up here: games where this model and the closing line disagree by a wide margin. Restricting the "most confident" picks to only those disagreements (3+ points for spreads, 1+ for totals) lifts the backtested walk-forward record to roughly 53% on spreads and 52% on totals &mdash; and the single biggest disagreement of the week, alone, has hit about 56% historically. Diluting that down to three picks a week costs some of that edge, which is why the 2nd and 3rd "confident" picks each week are markedly weaker than the 1st. Treat all of it as a well-tested statistical baseline, not betting advice.</p>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var TEAMS = {
+    ARI:["Arizona Cardinals","#97233F"], ATL:["Atlanta Falcons","#A71930"],
+    BAL:["Baltimore Ravens","#241773"], BUF:["Buffalo Bills","#00338D"],
+    CAR:["Carolina Panthers","#0085CA"], CHI:["Chicago Bears","#0B162A"],
+    CIN:["Cincinnati Bengals","#FB4F14"], CLE:["Cleveland Browns","#472A08"],
+    DAL:["Dallas Cowboys","#003594"], DEN:["Denver Broncos","#FB4F14"],
+    DET:["Detroit Lions","#0076B6"], GB:["Green Bay Packers","#203731"],
+    HOU:["Houston Texans","#03202F"], IND:["Indianapolis Colts","#002C5F"],
+    JAX:["Jacksonville Jaguars","#006778"], KC:["Kansas City Chiefs","#E31837"],
+    LA:["Los Angeles Rams","#003594"], LAC:["Los Angeles Chargers","#0080C6"],
+    LV:["Las Vegas Raiders","#000000"], MIA:["Miami Dolphins","#008E97"],
+    MIN:["Minnesota Vikings","#4F2683"], NE:["New England Patriots","#002244"],
+    NO:["New Orleans Saints","#9F8958"], NYG:["New York Giants","#0B2265"],
+    NYJ:["New York Jets","#125740"], PHI:["Philadelphia Eagles","#004C54"],
+    PIT:["Pittsburgh Steelers","#101820"], SEA:["Seattle Seahawks","#002244"],
+    SF:["San Francisco 49ers","#AA0000"], TB:["Tampa Bay Buccaneers","#D50A0A"],
+    TEN:["Tennessee Titans","#0C2340"], WAS:["Washington Commanders","#5A1414"]
+  };
+
+  var BASE=1500, K=20, HFA=48, REGRESS=1/3;
+  var BASE_PTS=22.0, ALPHA_PTS=0.05, REGRESS_PTS=1/3;
+  // fitted once against 26 seasons of closing lines: the raw points-for/against
+  // model runs about six tenths of a point hot on combined totals, and the two
+  // "most confident" pick lists only pay off once the model and the closing
+  // line actually disagree by a real amount -- see the footer for why.
+  var TOTAL_BIAS=0.59;
+  var MIN_EDGE_SPREAD=3.0, MIN_EDGE_TOTAL=1.0;
+
+  function winProb(ra, rb){ return 1/(1+Math.pow(10,(rb-ra)/400)); }
+  function movMult(pointDiff, eloDiffWinner){
+    var pd = Math.max(Math.abs(pointDiff),1);
+    return Math.pow(pd+3,0.8) / (7.5 + 0.006*eloDiffWinner);
+  }
+
+  function teamOption(code){
+    var o=document.createElement("option"); o.value=code;
+    o.textContent = code+" — "+TEAMS[code][0]; return o;
+  }
+
+  function teamChip(el, code){
+    var t = TEAMS[code];
+    el.innerHTML = '<span class="swatch" style="background:'+t[1]+'"></span>' +
+      '<span class="names"><span class="code">'+code+'</span><br><span class="full">'+t[0]+'</span></span>';
+  }
+
+  function fmtPct(p){ return (p*100).toFixed(1)+"%"; }
+
+  // erf approximation (Abramowitz & Stegun 7.1.26)
+  function erf(x){
+    var sign = x<0?-1:1; x=Math.abs(x);
+    var a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+    var t=1/(1+p*x);
+    var y=1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
+    return sign*y;
+  }
+  function normalCDF(z){ return 0.5*(1+erf(z/Math.SQRT2)); }
+
+  // predicted home margin in points (positive = home favored), matching the
+  // "home team favored by" sign convention used throughout the spread UI.
+  function computeMu(home, away, neutral){
+    var homeElo = getRating(home) + (neutral?0:HFA);
+    var awayElo = getRating(away);
+    return (homeElo-awayElo)/25;
+  }
+  // probability the HOME side of a line covers, given a normal approximation
+  // of final margin centered on the model's predicted margin.
+  function coverProbHome(mu, line){
+    return normalCDF((mu-line)/state.marginSigma);
+  }
+  function fmtLine(line){
+    var homeStr = line>=0 ? ("-"+line.toFixed(1)) : ("+"+Math.abs(line).toFixed(1));
+    var awayStr = line>=0 ? ("+"+line.toFixed(1)) : ("-"+Math.abs(line).toFixed(1));
+    return {home:homeStr, away:awayStr};
+  }
+
+  function getPF(code){ return state.pf.hasOwnProperty(code) ? state.pf[code] : BASE_PTS; }
+  function getPA(code){ return state.pa.hasOwnProperty(code) ? state.pa[code] : BASE_PTS; }
+  // predicted combined total, blending each team's own scoring rate with
+  // the rate its opponent tends to allow.
+  function computeTotalMu(home, away){
+    var homePts = (getPF(home)+getPA(away))/2;
+    var awayPts = (getPF(away)+getPA(home))/2;
+    return homePts+awayPts-TOTAL_BIAS;
+  }
+  // probability the total goes OVER a given line.
+  function overProb(mu, line){ return normalCDF((mu-line)/state.totalSigma); }
+
+  // ---- manual backup/injured-QB override ----
+  // There's no live injury feed this page can reach, so this is a manual,
+  // user-set point value (default ~4, researched range is roughly 2-7
+  // depending on the QB) applied on top of the base model.
+  function qbAdjustedWinProb(home, away, neutral, homeOut, awayOut){
+    var h = getRating(home) + (neutral?0:HFA) - (homeOut?state.qbPenalty*25:0);
+    var a = getRating(away) - (awayOut?state.qbPenalty*25:0);
+    return winProb(h, a);
+  }
+  function qbAdjustedMu(home, away, neutral, homeOut, awayOut){
+    return computeMu(home, away, neutral) + (awayOut?state.qbPenalty:0) - (homeOut?state.qbPenalty:0);
+  }
+  function qbAdjustedTotalMu(home, away, homeOut, awayOut){
+    return computeTotalMu(home, away) - (homeOut?state.qbPenalty*0.5:0) - (awayOut?state.qbPenalty*0.5:0);
+  }
+
+  // ---------------- data load + elo replay ----------------
+  var state = { rows:[], ratings:{}, history:[], seasons:[], marginSigma:13.86, pf:{}, pa:{}, totalSigma:10.2, qbPenalty:4.0 };
+
+  fetch("games_slim.csv").then(function(r){ return r.text(); }).then(function(text){
+    parseAndRun(text);
+    boot();
+  }).catch(function(err){
+    document.getElementById("asof-badge").innerHTML = "Could not load game data.";
+    console.error(err);
+  });
+
+  function parseAndRun(text){
+    var lines = text.split("\n");
+    var rows = [];
+    for(var i=1;i<lines.length;i++){
+      var line = lines[i];
+      if(!line) continue;
+      var c = line.split(",");
+      if(c.length<9) continue;
+      rows.push({
+        season:+c[0], week:+c[1], home:c[2], away:c[3],
+        hs: c[4]==="" ? null : +c[4],
+        as: c[5]==="" ? null : +c[5],
+        neutral: c[6].trim()==="1",
+        spreadLine: c[7]==="" || c[7]===undefined ? null : +c[7],
+        totalLine: c[8]==="" || c[8]===undefined ? null : +c[8]
+      });
+    }
+    state.rows = rows;
+
+    var ratings = {}, history = [], curSeason = null;
+    var residuals = [], residualsTotal = [];
+    var pf = {}, pa = {};
+    for(var i=0;i<rows.length;i++){
+      var g = rows[i];
+      if(curSeason===null) curSeason = g.season;
+      if(g.season !== curSeason){
+        for(var t in ratings){ ratings[t] = ratings[t] + REGRESS*(BASE-ratings[t]); }
+        for(var t2 in pf){ pf[t2] = pf[t2] + REGRESS_PTS*(BASE_PTS-pf[t2]); pa[t2] = pa[t2] + REGRESS_PTS*(BASE_PTS-pa[t2]); }
+        curSeason = g.season;
+      }
+      if(g.hs===null || g.as===null) continue;
+
+      var homePre = ratings.hasOwnProperty(g.home) ? ratings[g.home] : BASE;
+      var awayPre = ratings.hasOwnProperty(g.away) ? ratings[g.away] : BASE;
+      var homeElo = homePre + (g.neutral?0:HFA);
+      var awayElo = awayPre;
+      var pHome = winProb(homeElo, awayElo);
+      var diff = g.hs - g.as;
+      var homeWon = diff>0;
+      var actual = diff>0?1:(diff===0?0.5:0);
+      var eloDiffWinner = homeWon ? (homeElo-awayElo) : (awayElo-homeElo);
+      var mult = movMult(diff, eloDiffWinner);
+      var shift = K*mult*(actual-pHome);
+      ratings[g.home] = homePre + shift;
+      ratings[g.away] = awayPre - shift;
+
+      var predMargin = (homeElo-awayElo)/25;
+      residuals.push(diff-predMargin);
+
+      // points-for/points-against, EMA per team, for the totals model
+      var homePFpre = pf.hasOwnProperty(g.home) ? pf[g.home] : BASE_PTS;
+      var homePApre = pa.hasOwnProperty(g.home) ? pa[g.home] : BASE_PTS;
+      var awayPFpre = pf.hasOwnProperty(g.away) ? pf[g.away] : BASE_PTS;
+      var awayPApre = pa.hasOwnProperty(g.away) ? pa[g.away] : BASE_PTS;
+      var predTotal = (homePFpre+awayPApre)/2 + (awayPFpre+homePApre)/2 - TOTAL_BIAS;
+      var actualTotal = g.hs+g.as;
+      residualsTotal.push(actualTotal-predTotal);
+
+      pf[g.home] = homePFpre + ALPHA_PTS*(g.hs-homePFpre);
+      pa[g.home] = homePApre + ALPHA_PTS*(g.as-homePApre);
+      pf[g.away] = awayPFpre + ALPHA_PTS*(g.as-awayPFpre);
+      pa[g.away] = awayPApre + ALPHA_PTS*(g.hs-awayPApre);
+
+      history.push({season:g.season, week:g.week, home:g.home, away:g.away,
+        hs:g.hs, as:g.as, pHome:pHome, actual:actual,
+        predMargin:predMargin, spreadLine:g.spreadLine,
+        predTotal:predTotal, totalLine:g.totalLine, actualTotal:actualTotal});
+    }
+    state.ratings = ratings;
+    state.history = history;
+    state.pf = pf;
+    state.pa = pa;
+
+    if(residuals.length>30){
+      var meanR = residuals.reduce(function(a,b){return a+b;},0)/residuals.length;
+      var variance = residuals.reduce(function(a,b){return a+(b-meanR)*(b-meanR);},0)/residuals.length;
+      state.marginSigma = Math.sqrt(variance);
+    }
+    if(residualsTotal.length>30){
+      var meanRT = residualsTotal.reduce(function(a,b){return a+b;},0)/residualsTotal.length;
+      var varianceT = residualsTotal.reduce(function(a,b){return a+(b-meanRT)*(b-meanRT);},0)/residualsTotal.length;
+      state.totalSigma = Math.sqrt(varianceT);
+    }
+
+    var seasonSet = {};
+    rows.forEach(function(g){ seasonSet[g.season]=true; });
+    state.seasons = Object.keys(seasonSet).map(Number).sort(function(a,b){return a-b;});
+  }
+
+  function getRating(code){ return state.ratings.hasOwnProperty(code) ? state.ratings[code] : BASE; }
+
+  function pregameProbFinal(home, away, neutral){
+    var h = getRating(home) + (neutral?0:HFA);
+    var a = getRating(away);
+    return winProb(h,a);
+  }
+
+  // ---------------- boot / wiring ----------------
+  function boot(){
+    setAsOfBadge();
+    setupTabs();
+    setupPredict();
+    setupRankings();
+    computeTrackRecord();
+    setupWeek();
+    setupAccuracy();
+  }
+
+  // Walk-forward record of the "3 most confident picks" feature itself: for
+  // every past week, replay the same top-3-by-confidence selection the Week
+  // tab uses live, then score it against the actual result.
+  function computeTrackRecord(){
+    var byWeek = {};
+    state.history.forEach(function(h){
+      var key = h.season+"-"+h.week;
+      if(!byWeek[key]) byWeek[key] = {season:h.season, week:h.week, games:[]};
+      byWeek[key].games.push(h);
+    });
+    var weekKeys = Object.keys(byWeek).sort(function(a,b){
+      var A=byWeek[a], B=byWeek[b];
+      return (A.season-B.season) || (A.week-B.week);
+    });
+
+    var winRec={w:0,l:0}, spreadRec={w:0,l:0,p:0}, totalRec={w:0,l:0,p:0};
+    var cumWin=0, cumSpread=0, cumTotal=0;
+    var series = [];
+
+    weekKeys.forEach(function(key){
+      var wk = byWeek[key];
+
+      var winCands = wk.games.map(function(h){
+        var prob = Math.max(h.pHome, 1-h.pHome);
+        var correct = (h.pHome>=0.5)===(h.actual>=0.5);
+        return {prob:prob, correct:correct};
+      });
+      winCands.sort(function(a,b){ return b.prob-a.prob; });
+      winCands.slice(0,3).forEach(function(c){
+        if(c.correct){ winRec.w++; cumWin++; } else { winRec.l++; cumWin--; }
+      });
+
+      var spreadCands = wk.games.filter(function(h){
+        return h.spreadLine!==null && Math.abs(h.predMargin-h.spreadLine)>=MIN_EDGE_SPREAD;
+      }).map(function(h){
+        var pHomeCovers = coverProbHome(h.predMargin, h.spreadLine);
+        var prob = Math.max(pHomeCovers, 1-pHomeCovers);
+        var homeMargin = h.hs-h.as;
+        var push = homeMargin===h.spreadLine;
+        var correct = !push && ((h.predMargin>=h.spreadLine)===(homeMargin>h.spreadLine));
+        return {prob:prob, correct:correct, push:push};
+      });
+      spreadCands.sort(function(a,b){ return b.prob-a.prob; });
+      spreadCands.slice(0,3).forEach(function(c){
+        if(c.push){ spreadRec.p++; }
+        else if(c.correct){ spreadRec.w++; cumSpread++; }
+        else { spreadRec.l++; cumSpread--; }
+      });
+
+      var totalCands = wk.games.filter(function(h){
+        return h.totalLine!==null && Math.abs(h.predTotal-h.totalLine)>=MIN_EDGE_TOTAL;
+      }).map(function(h){
+        var pOver = overProb(h.predTotal, h.totalLine);
+        var prob = Math.max(pOver, 1-pOver);
+        var push = h.actualTotal===h.totalLine;
+        var correct = !push && ((h.predTotal>=h.totalLine)===(h.actualTotal>h.totalLine));
+        return {prob:prob, correct:correct, push:push};
+      });
+      totalCands.sort(function(a,b){ return b.prob-a.prob; });
+      totalCands.slice(0,3).forEach(function(c){
+        if(c.push){ totalRec.p++; }
+        else if(c.correct){ totalRec.w++; cumTotal++; }
+        else { totalRec.l++; cumTotal--; }
+      });
+
+      series.push({season:wk.season, week:wk.week, cumWin:cumWin, cumSpread:cumSpread, cumTotal:cumTotal});
+    });
+
+    state.trackRecord = {series:series, winRec:winRec, spreadRec:spreadRec, totalRec:totalRec};
+    renderTrackRecord();
+  }
+
+  function pct(rec){ var n=rec.w+rec.l; return n ? (rec.w/n*100).toFixed(1)+"%" : "n/a"; }
+
+  function renderTrackRecord(){
+    var tr = state.trackRecord;
+    document.getElementById("tr-winners").textContent = tr.winRec.w+"-"+tr.winRec.l;
+    document.getElementById("tr-winners-note").textContent = pct(tr.winRec)+" hit rate";
+    document.getElementById("tr-spread").textContent = tr.spreadRec.w+"-"+tr.spreadRec.l+(tr.spreadRec.p?"-"+tr.spreadRec.p+"p":"");
+    document.getElementById("tr-spread-note").textContent = pct(tr.spreadRec)+" hit rate";
+    document.getElementById("tr-totals").textContent = tr.totalRec.w+"-"+tr.totalRec.l+(tr.totalRec.p?"-"+tr.totalRec.p+"p":"");
+    document.getElementById("tr-totals-note").textContent = pct(tr.totalRec)+" hit rate";
+    drawTrackRecordChart(tr.series);
+  }
+
+  function drawTrackRecordChart(series){
+    var svg = document.getElementById("tr-chart");
+    var W=640,H=220, padL=34, padR=10, padT=14, padB=26;
+    var plotW=W-padL-padR, plotH=H-padT-padB;
+
+    var allVals = [];
+    series.forEach(function(d){ allVals.push(d.cumWin, d.cumSpread, d.cumTotal); });
+    var minY = Math.min(0, Math.min.apply(null, allVals));
+    var maxY = Math.max(0, Math.max.apply(null, allVals));
+    if(minY===maxY){ minY-=5; maxY+=5; }
+    var padY = (maxY-minY)*0.08;
+    minY -= padY; maxY += padY;
+
+    function x(i){ return padL + (series.length<=1 ? plotW/2 : i/(series.length-1)*plotW); }
+    function y(v){ return padT + (1-(v-minY)/(maxY-minY))*plotH; }
+
+    var parts = [];
+
+    // zero line + a couple of gridlines
+    var zeroY = y(0);
+    parts.push('<line class="gridline" x1="'+padL+'" x2="'+(W-padR)+'" y1="'+zeroY.toFixed(1)+'" y2="'+zeroY.toFixed(1)+'" stroke="var(--line-strong)"/>');
+    parts.push('<text class="axis-text" x="'+(padL-8)+'" y="'+(zeroY+3)+'" text-anchor="end">0</text>');
+    [maxY*0.66, minY*0.66].forEach(function(v){
+      var yy=y(v);
+      parts.push('<line class="gridline" x1="'+padL+'" x2="'+(W-padR)+'" y1="'+yy.toFixed(1)+'" y2="'+yy.toFixed(1)+'"/>');
+      parts.push('<text class="axis-text" x="'+(padL-8)+'" y="'+(yy+3)+'" text-anchor="end">'+Math.round(v)+'</text>');
+    });
+
+    // x labels at season boundaries, thinned to fit
+    var boundaries = [];
+    series.forEach(function(d,i){
+      if(i===0 || d.season!==series[i-1].season) boundaries.push(i);
+    });
+    var stride = Math.max(1, Math.ceil(boundaries.length/9));
+    boundaries.forEach(function(i, bi){
+      if(bi%stride===0 || i===boundaries[boundaries.length-1]){
+        parts.push('<text class="axis-text" x="'+x(i).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle">'+series[i].season+'</text>');
+      }
+    });
+
+    function linePath(key){
+      return series.map(function(d,i){ return (i===0?"M":"L")+x(i).toFixed(1)+","+y(d[key]).toFixed(1); }).join(" ");
+    }
+    parts.push('<path d="'+linePath('cumSpread')+'" fill="none" stroke="var(--series-2)" stroke-width="2"/>');
+    parts.push('<path d="'+linePath('cumTotal')+'" fill="none" stroke="var(--series-3)" stroke-width="2"/>');
+    parts.push('<path d="'+linePath('cumWin')+'" fill="none" stroke="var(--series-1)" stroke-width="2.5"/>');
+
+    parts.push('<g id="tr-crosshair" style="display:none">' +
+      '<line class="crosshair" id="tr-cross-line" y1="'+padT+'" y2="'+(padT+plotH)+'"/>' +
+      '<circle id="tr-dot-win" r="3.5" fill="var(--series-1)"/>' +
+      '<circle id="tr-dot-spread" r="3.5" fill="var(--series-2)"/>' +
+      '<circle id="tr-dot-total" r="3.5" fill="var(--series-3)"/>' +
+    '</g>');
+    parts.push('<rect id="tr-hitrect" x="'+padL+'" y="'+padT+'" width="'+plotW+'" height="'+plotH+'" fill="transparent"/>');
+
+    svg.innerHTML = parts.join("");
+
+    var tip = document.getElementById("tr-tooltip");
+    var cross = document.getElementById("tr-crosshair");
+    var crossLine = document.getElementById("tr-cross-line");
+    var dotWin = document.getElementById("tr-dot-win");
+    var dotSpread = document.getElementById("tr-dot-spread");
+    var dotTotal = document.getElementById("tr-dot-total");
+    var hitrect = document.getElementById("tr-hitrect");
+    var wrap = svg.parentElement;
+
+    function showAt(clientX, clientY){
+      var rect = svg.getBoundingClientRect();
+      var svgX = (clientX-rect.left) * (W/rect.width);
+      var frac = (svgX-padL)/plotW;
+      var i = Math.round(frac*(series.length-1));
+      i = Math.max(0, Math.min(series.length-1, i));
+      var d = series[i];
+      var px = x(i);
+      crossLine.setAttribute("x1", px); crossLine.setAttribute("x2", px);
+      dotWin.setAttribute("cx", px); dotWin.setAttribute("cy", y(d.cumWin));
+      dotSpread.setAttribute("cx", px); dotSpread.setAttribute("cy", y(d.cumSpread));
+      dotTotal.setAttribute("cx", px); dotTotal.setAttribute("cy", y(d.cumTotal));
+      cross.style.display = "block";
+
+      var wrapRect = wrap.getBoundingClientRect();
+      tip.style.left = (clientX-wrapRect.left)+"px";
+      tip.style.top = (clientY-wrapRect.top)+"px";
+      tip.innerHTML = d.season+' Wk'+d.week+'<br>Winners '+(d.cumWin>=0?'+':'')+d.cumWin+
+        ' &middot; Spread '+(d.cumSpread>=0?'+':'')+d.cumSpread+
+        ' &middot; Totals '+(d.cumTotal>=0?'+':'')+d.cumTotal;
+      tip.classList.add("show");
+    }
+
+    hitrect.addEventListener("mousemove", function(e){ showAt(e.clientX, e.clientY); });
+    hitrect.addEventListener("mouseleave", function(){ cross.style.display="none"; tip.classList.remove("show"); });
+    hitrect.addEventListener("touchstart", function(e){ var t=e.touches[0]; showAt(t.clientX, t.clientY); }, {passive:true});
+    hitrect.addEventListener("touchmove", function(e){ var t=e.touches[0]; showAt(t.clientX, t.clientY); }, {passive:true});
+  }
+
+  function setAsOfBadge(){
+    var latestSeason = state.seasons[state.seasons.length-1];
+    var rowsThisSeason = state.rows.filter(function(g){return g.season===latestSeason;});
+    var weeks = {};
+    rowsThisSeason.forEach(function(g){
+      weeks[g.week] = weeks[g.week] || {total:0, done:0};
+      weeks[g.week].total++;
+      if(g.hs!==null) weeks[g.week].done++;
+    });
+    var weekNums = Object.keys(weeks).map(Number).sort(function(a,b){return a-b;});
+    var currentWeek = weekNums[0];
+    for(var i=0;i<weekNums.length;i++){
+      var w = weeks[weekNums[i]];
+      if(w.done < w.total){ currentWeek = weekNums[i]; break; }
+      currentWeek = weekNums[i]+1;
+    }
+    var totalGames = state.rows.filter(function(g){return g.hs!==null;}).length;
+    document.getElementById("asof-badge").innerHTML =
+      '<span class="dot"></span> Live through <b>Week '+currentWeek+', '+latestSeason+'</b> &middot; '+
+      totalGames.toLocaleString()+' games replayed since 1999';
+  }
+
+  function setupTabs(){
+    var tabs = document.querySelectorAll(".tab");
+    tabs.forEach(function(btn){
+      btn.addEventListener("click", function(){
+        tabs.forEach(function(b){ b.setAttribute("aria-selected", b===btn ? "true":"false"); });
+        ["predict","rankings","week","accuracy"].forEach(function(name){
+          document.getElementById("panel-"+name).hidden = (name !== btn.dataset.tab);
+        });
+      });
+    });
+  }
+
+  // ---------------- predict ----------------
+  function setupPredict(){
+    var selHome = document.getElementById("sel-home");
+    var selAway = document.getElementById("sel-away");
+    var codes = Object.keys(TEAMS).sort();
+    codes.forEach(function(c){ selHome.appendChild(teamOption(c)); });
+    codes.forEach(function(c){ selAway.appendChild(teamOption(c)); });
+    selHome.value = "KC";
+    selAway.value = "BUF";
+
+    document.getElementById("btn-swap").addEventListener("click", function(){
+      var h = selHome.value; selHome.value = selAway.value; selAway.value = h;
+      resetSpreadInput(); resetTotalInput();
+      renderPredict();
+    });
+    selHome.addEventListener("change", function(){ resetSpreadInput(); resetTotalInput(); renderPredict(); });
+    selAway.addEventListener("change", function(){ resetSpreadInput(); resetTotalInput(); renderPredict(); });
+    document.getElementById("chk-neutral").addEventListener("change", function(){ resetSpreadInput(); renderPredict(); });
+
+    document.getElementById("inp-spread").addEventListener("input", renderATS);
+    document.getElementById("btn-fair-spread").addEventListener("click", function(){
+      resetSpreadInput(); renderATS();
+    });
+
+    document.getElementById("inp-total").addEventListener("input", renderTotal);
+    document.getElementById("btn-fair-total").addEventListener("click", function(){
+      resetTotalInput(); renderTotal();
+    });
+
+    document.getElementById("chk-qb-home").addEventListener("change", function(){
+      resetSpreadInput(); resetTotalInput(); renderPredict();
+    });
+    document.getElementById("chk-qb-away").addEventListener("change", function(){
+      resetSpreadInput(); resetTotalInput(); renderPredict();
+    });
+    document.getElementById("inp-qb-penalty").addEventListener("input", function(){
+      var v = parseFloat(this.value);
+      if(!isNaN(v)) state.qbPenalty = v;
+      resetSpreadInput(); resetTotalInput(); renderPredict();
+    });
+
+    resetSpreadInput();
+    resetTotalInput();
+    renderPredict();
+  }
+
+  function qbOutFlags(){
+    return {
+      home: document.getElementById("chk-qb-home").checked,
+      away: document.getElementById("chk-qb-away").checked
+    };
+  }
+
+  function resetSpreadInput(){
+    var home = document.getElementById("sel-home").value;
+    var away = document.getElementById("sel-away").value;
+    var neutral = document.getElementById("chk-neutral").checked;
+    var qb = qbOutFlags();
+    var mu = qbAdjustedMu(home, away, neutral, qb.home, qb.away);
+    document.getElementById("inp-spread").value = (Math.round(mu*2)/2).toFixed(1);
+  }
+
+  function resetTotalInput(){
+    var home = document.getElementById("sel-home").value;
+    var away = document.getElementById("sel-away").value;
+    var qb = qbOutFlags();
+    var mu = qbAdjustedTotalMu(home, away, qb.home, qb.away);
+    document.getElementById("inp-total").value = (Math.round(mu*2)/2).toFixed(1);
+  }
+
+  function renderPredict(){
+    var home = document.getElementById("sel-home").value;
+    var away = document.getElementById("sel-away").value;
+    var neutral = document.getElementById("chk-neutral").checked;
+    var qb = qbOutFlags();
+
+    teamChip(document.getElementById("chip-home"), home);
+    teamChip(document.getElementById("chip-away"), away);
+
+    var pHome = qbAdjustedWinProb(home, away, neutral, qb.home, qb.away);
+    var pAway = 1-pHome;
+    document.getElementById("prob-home").textContent = fmtPct(pHome);
+    document.getElementById("prob-away").textContent = fmtPct(pAway);
+
+    var bar = document.getElementById("predict-splitbar");
+    bar.children[0].style.cssText = "width:"+(pAway*100)+"%; background:"+TEAMS[away][1];
+    bar.children[1].style.cssText = "width:"+(pHome*100)+"%; background:"+TEAMS[home][1];
+
+    var homeElo = getRating(home), awayElo = getRating(away);
+    document.getElementById("elo-home").textContent = homeElo.toFixed(1)+(qb.home?" (QB−"+(state.qbPenalty*25).toFixed(0)+")":"");
+    document.getElementById("elo-away").textContent = awayElo.toFixed(1)+(qb.away?" (QB−"+(state.qbPenalty*25).toFixed(0)+")":"");
+
+    var spread = qbAdjustedMu(home, away, neutral, qb.home, qb.away);
+    document.getElementById("implied-spread").textContent = (spread>=0?"+":"")+spread.toFixed(1)+" (home)";
+
+    var favCode = pHome>=pAway ? home : away;
+    var favProb = Math.max(pHome,pAway);
+    document.getElementById("favorite-line").innerHTML =
+      'Model favorite: <b>'+TEAMS[favCode][0]+'</b> <span class="pill accent">'+fmtPct(favProb)+'</span>' +
+      (neutral ? '' : (home===favCode ? ' &middot; helped by home field' : ' &middot; favored despite playing on the road')) +
+      ((qb.home||qb.away) ? ' &middot; adjusted for a backup QB' : '');
+
+    renderATS();
+    renderTotal();
+  }
+
+  function renderATS(){
+    var home = document.getElementById("sel-home").value;
+    var away = document.getElementById("sel-away").value;
+    var neutral = document.getElementById("chk-neutral").checked;
+    var line = parseFloat(document.getElementById("inp-spread").value);
+    if(isNaN(line)) return;
+
+    teamChip(document.getElementById("ats-chip-home"), home);
+    teamChip(document.getElementById("ats-chip-away"), away);
+
+    var qb = qbOutFlags();
+    var mu = qbAdjustedMu(home, away, neutral, qb.home, qb.away);
+    var pHomeCovers = coverProbHome(mu, line);
+    var pAwayCovers = 1-pHomeCovers;
+    var lbl = fmtLine(line);
+
+    document.getElementById("ats-prob-home").textContent = fmtPct(pHomeCovers);
+    document.getElementById("ats-prob-away").textContent = fmtPct(pAwayCovers);
+
+    var bar = document.getElementById("ats-splitbar");
+    bar.children[0].style.cssText = "width:"+(pAwayCovers*100)+"%; background:"+TEAMS[away][1];
+    bar.children[1].style.cssText = "width:"+(pHomeCovers*100)+"%; background:"+TEAMS[home][1];
+
+    var pickCode = pHomeCovers>=pAwayCovers ? home : away;
+    var pickLine = pickCode===home ? lbl.home : lbl.away;
+    var pickProb = Math.max(pHomeCovers,pAwayCovers);
+    document.getElementById("ats-verdict").innerHTML =
+      'More likely to cover: <b>'+TEAMS[pickCode][0]+' '+pickLine+'</b> &middot; '+fmtPct(pickProb) +
+      ' &middot; based on a &plusmn;'+state.marginSigma.toFixed(1)+'-point scoring-margin spread fitted to 26 seasons of results';
+  }
+
+  function renderTotal(){
+    var home = document.getElementById("sel-home").value;
+    var away = document.getElementById("sel-away").value;
+    var line = parseFloat(document.getElementById("inp-total").value);
+    if(isNaN(line)) return;
+
+    var qb = qbOutFlags();
+    var mu = qbAdjustedTotalMu(home, away, qb.home, qb.away);
+    var pOver = overProb(mu, line);
+    var pUnder = 1-pOver;
+
+    document.getElementById("total-prob-over").textContent = fmtPct(pOver);
+    document.getElementById("total-prob-under").textContent = fmtPct(pUnder);
+    document.getElementById("total-model-value").textContent = mu.toFixed(1)+" pts";
+
+    var bar = document.getElementById("total-splitbar");
+    bar.children[0].style.cssText = "width:"+(pUnder*100)+"%; background:var(--div-neg)";
+    bar.children[1].style.cssText = "width:"+(pOver*100)+"%; background:var(--div-pos)";
+
+    var pickSide = pOver>=pUnder ? "Over" : "Under";
+    var pickProb = Math.max(pOver,pUnder);
+    document.getElementById("total-verdict").innerHTML =
+      'More likely to hit: <b>'+pickSide+' '+line.toFixed(1)+'</b> &middot; '+fmtPct(pickProb) +
+      ' &middot; based on a &plusmn;'+state.totalSigma.toFixed(1)+'-point scoring estimate from each team\'s points-for and points-against';
+  }
+
+  // ---------------- rankings ----------------
+  function setupRankings(){ renderRankings(); }
+
+  function renderRankings(){
+    var list = document.getElementById("rank-list");
+    var arr = Object.keys(TEAMS).map(function(c){ return {code:c, elo:getRating(c)}; });
+    arr.sort(function(a,b){ return b.elo-a.elo; });
+    var maxDelta = Math.max.apply(null, arr.map(function(d){return Math.abs(d.elo-BASE);}));
+    maxDelta = Math.max(maxDelta, 10);
+
+    var html = "";
+    arr.forEach(function(d, i){
+      var delta = d.elo-BASE;
+      var pct = Math.min(Math.abs(delta)/maxDelta*50, 50);
+      var pos = delta>=0;
+      var t = TEAMS[d.code];
+      html += '<div class="rank-row">' +
+        '<div class="rnum mono">'+(i+1)+'</div>' +
+        '<div class="team-chip"><span class="swatch" style="background:'+t[1]+'"></span>' +
+          '<span class="names"><span class="code">'+d.code+'</span><br><span class="full">'+t[0]+'</span></span></div>' +
+        '<div class="divbar-track"><div class="divbar-mid" style="left:50%"></div>' +
+          '<div class="divbar-fill" style="'+(pos?'left:50%;':'right:50%;')+'width:'+pct+'%; background:'+(pos?'var(--div-pos)':'var(--div-neg)')+'"></div>' +
+        '</div>' +
+        '<div class="elo-val">'+d.elo.toFixed(0)+'</div>' +
+      '</div>';
+    });
+    list.innerHTML = html;
+  }
+
+  // ---------------- week ----------------
+  function setupWeek(){
+    var selSeason = document.getElementById("sel-season");
+    state.seasons.slice().reverse().forEach(function(s){
+      var o=document.createElement("option"); o.value=s; o.textContent=s; selSeason.appendChild(o);
+    });
+
+    var latestSeason = state.seasons[state.seasons.length-1];
+    selSeason.value = latestSeason;
+    populateWeeks(latestSeason, defaultWeekFor(latestSeason));
+
+    selSeason.addEventListener("change", function(){
+      populateWeeks(+selSeason.value, null);
+      renderWeek();
+    });
+    document.getElementById("sel-week").addEventListener("change", renderWeek);
+
+    var weekList = document.getElementById("week-list");
+    weekList.addEventListener("input", function(e){
+      if(e.target.classList.contains("ats-line-input")) updateAtsCard(e.target);
+      if(e.target.classList.contains("total-line-input")) updateTotalCard(e.target);
+    });
+    weekList.addEventListener("click", function(e){
+      var btn = e.target.closest(".reset-line-btn");
+      if(btn){
+        var input = document.getElementById("line-input-"+btn.dataset.idx);
+        input.value = input.dataset.default;
+        updateAtsCard(input);
+        return;
+      }
+      var tbtn = e.target.closest(".reset-total-btn");
+      if(tbtn){
+        var tinput = document.getElementById("total-input-"+tbtn.dataset.idx);
+        tinput.value = tinput.dataset.default;
+        updateTotalCard(tinput);
+      }
+    });
+    weekList.addEventListener("change", function(e){
+      if(!e.target.classList.contains("qb-toggle")) return;
+      var idx = e.target.dataset.idx;
+      updateMoneylineCard(idx);
+      var atsInput = document.getElementById("line-input-"+idx);
+      if(atsInput) updateAtsCard(atsInput);
+      var totalInput = document.getElementById("total-input-"+idx);
+      if(totalInput) updateTotalCard(totalInput);
+    });
+
+    renderWeek();
+  }
+
+  function isQbOut(idx, side){
+    var el = document.querySelector('.qb-toggle[data-idx="'+idx+'"][data-side="'+side+'"]');
+    return el ? el.checked : false;
+  }
+
+  function updateMoneylineCard(idx){
+    var input = document.getElementById("line-input-"+idx) || document.getElementById("total-input-"+idx);
+    if(!input) return;
+    var home = input.dataset.home, away = input.dataset.away;
+    var neutral = input.dataset.neutral==="1";
+    var pHome = qbAdjustedWinProb(home, away, neutral, isQbOut(idx,"home"), isQbOut(idx,"away"));
+    var pAway = 1-pHome;
+
+    var bar = document.getElementById("ml-splitbar-"+idx);
+    bar.children[0].style.cssText = "width:"+(pAway*100)+"%; background:"+TEAMS[away][1];
+    bar.children[1].style.cssText = "width:"+(pHome*100)+"%; background:"+TEAMS[home][1];
+    document.getElementById("ml-away-prob-"+idx).textContent = away+" "+fmtPct(pAway);
+    document.getElementById("ml-home-prob-"+idx).textContent = home+" "+fmtPct(pHome);
+  }
+
+  function updateTotalCard(input){
+    var line = parseFloat(input.value);
+    if(isNaN(line)) return;
+    var idx = input.dataset.idx;
+    var home = input.dataset.home, away = input.dataset.away;
+
+    var mu = qbAdjustedTotalMu(home, away, isQbOut(idx,"home"), isQbOut(idx,"away"));
+    var pOver = overProb(mu, line);
+    var pUnder = 1-pOver;
+
+    var bar = document.getElementById("total-splitbar-"+idx);
+    bar.children[0].style.cssText = "width:"+(pUnder*100)+"%; background:var(--div-neg)";
+    bar.children[1].style.cssText = "width:"+(pOver*100)+"%; background:var(--div-pos)";
+
+    document.getElementById("total-under-prob-"+idx).textContent = "Under "+fmtPct(pUnder);
+    document.getElementById("total-over-prob-"+idx).textContent = "Over "+fmtPct(pOver);
+
+    var pickSide = pOver>=pUnder ? "Over" : "Under";
+    var pickProb = Math.max(pOver,pUnder);
+    document.getElementById("total-verdict-"+idx).innerHTML =
+      'Pick: <b>'+pickSide+' '+line.toFixed(1)+'</b> ('+fmtPct(pickProb)+')';
+
+    var callEl = document.getElementById("total-call-"+idx);
+    if(input.dataset.final==="1"){
+      var actualTotalPts = +input.dataset.actual;
+      if(actualTotalPts===line){
+        callEl.innerHTML = '<div class="call">push &mdash; exact line</div>';
+      } else {
+        var actualSide = actualTotalPts>line ? "Over" : "Under";
+        var correct = actualSide===pickSide;
+        callEl.innerHTML = '<div class="call '+(correct?'good':'bad')+'">'+(correct?'&#10003; would have hit':'&#10007; would not have hit')+'</div>';
+      }
+    }
+  }
+
+  function updateAtsCard(input){
+    var line = parseFloat(input.value);
+    if(isNaN(line)) return;
+    var idx = input.dataset.idx;
+    var home = input.dataset.home, away = input.dataset.away;
+    var neutral = input.dataset.neutral==="1";
+
+    var mu = qbAdjustedMu(home, away, neutral, isQbOut(idx,"home"), isQbOut(idx,"away"));
+    var pHomeCovers = coverProbHome(mu, line);
+    var pAwayCovers = 1-pHomeCovers;
+    var lbl = fmtLine(line);
+
+    var bar = document.getElementById("ats-splitbar-"+idx);
+    bar.children[0].style.cssText = "width:"+(pAwayCovers*100)+"%; background:"+TEAMS[away][1];
+    bar.children[1].style.cssText = "width:"+(pHomeCovers*100)+"%; background:"+TEAMS[home][1];
+
+    document.getElementById("ats-away-prob-"+idx).textContent = away+" "+fmtPct(pAwayCovers);
+    document.getElementById("ats-home-prob-"+idx).textContent = home+" "+fmtPct(pHomeCovers);
+
+    var pickCode = pHomeCovers>=pAwayCovers ? home : away;
+    var pickLine = pickCode===home ? lbl.home : lbl.away;
+    var pickProb = Math.max(pHomeCovers,pAwayCovers);
+    document.getElementById("ats-verdict-"+idx).innerHTML =
+      'Pick: <b>'+pickCode+' '+pickLine+'</b> to cover ('+fmtPct(pickProb)+')';
+
+    var callEl = document.getElementById("ats-call-"+idx);
+    if(input.dataset.final==="1"){
+      var hs = +input.dataset.hs, as = +input.dataset.as;
+      var homeMargin = hs-as;
+      if(homeMargin===line){
+        callEl.innerHTML = '<div class="call">push &mdash; exact line</div>';
+      } else {
+        var actualCoverCode = homeMargin>line ? home : away;
+        var correct = actualCoverCode===pickCode;
+        callEl.innerHTML = '<div class="call '+(correct?'good':'bad')+'">'+(correct?'&#10003; would have covered':'&#10007; would not have covered')+'</div>';
+      }
+    }
+  }
+
+  function defaultWeekFor(season){
+    var rows = state.rows.filter(function(g){return g.season===season;});
+    var weeks = {};
+    rows.forEach(function(g){
+      weeks[g.week]=weeks[g.week]||{total:0,done:0};
+      weeks[g.week].total++; if(g.hs!==null) weeks[g.week].done++;
+    });
+    var nums = Object.keys(weeks).map(Number).sort(function(a,b){return a-b;});
+    for(var i=0;i<nums.length;i++){ if(weeks[nums[i]].done < weeks[nums[i]].total) return nums[i]; }
+    return nums.length ? nums[nums.length-1] : 1;
+  }
+
+  function populateWeeks(season, preferred){
+    var selWeek = document.getElementById("sel-week");
+    var weeksSet = {};
+    state.rows.forEach(function(g){ if(g.season===season) weeksSet[g.week]=true; });
+    var weeks = Object.keys(weeksSet).map(Number).sort(function(a,b){return a-b;});
+    selWeek.innerHTML = "";
+    weeks.forEach(function(w){
+      var o=document.createElement("option"); o.value=w; o.textContent="Week "+w; selWeek.appendChild(o);
+    });
+    selWeek.value = preferred!==null ? preferred : weeks[0];
+  }
+
+  function renderWeek(){
+    var season = +document.getElementById("sel-season").value;
+    var week = +document.getElementById("sel-week").value;
+    var slate = state.rows.filter(function(g){ return g.season===season && g.week===week; });
+    var out = document.getElementById("week-list");
+
+    if(!slate.length){
+      out.innerHTML = '<p class="desc">No games found.</p>';
+      document.getElementById("closest-calls").innerHTML = "";
+      document.getElementById("confident-winners").innerHTML = "";
+      document.getElementById("confident-totals").innerHTML = "";
+      return;
+    }
+
+    var html = "";
+    var confidentSpreads = [];
+    var confidentWinners = [];
+    var confidentTotals = [];
+    slate.forEach(function(g, idx){
+      var pHome = pregameProbFinal(g.home, g.away, g.neutral);
+      var pAway = 1-pHome;
+      var final = g.hs!==null;
+      var favCode = pHome>=pAway ? g.home : g.away;
+      var favProb = Math.max(pHome,pAway);
+      var tHome = TEAMS[g.home], tAway = TEAMS[g.away];
+
+      var callHtml = "";
+      if(final){
+        var winnerCode = g.hs>g.as ? g.home : (g.as>g.hs ? g.away : null);
+        if(winnerCode){
+          var correct = winnerCode===favCode;
+          callHtml = '<div class="call '+(correct?'good':'bad')+'">'+(correct?'&#10003; model favorite won':'&#10007; upset &mdash; model favorite lost')+'</div>';
+        }
+      }
+
+      confidentWinners.push({pickCode:favCode, pickLabel:favCode, detail:"to win outright",
+        oppCode:"vs "+(favCode===g.home?g.away:g.home), prob:favProb});
+
+      // against-the-spread: use the real closing line when we have one,
+      // otherwise fall back to the model's own fair-value line (clearly marked).
+      var mu = computeMu(g.home, g.away, g.neutral);
+      var hasMarket = g.spreadLine!==null;
+      var line = hasMarket ? g.spreadLine : (Math.round(mu*2)/2);
+      var pHomeCovers = coverProbHome(mu, line);
+      var pAwayCovers = 1-pHomeCovers;
+      var lbl = fmtLine(line);
+      var atsPickCode = pHomeCovers>=pAwayCovers ? g.home : g.away;
+      var atsPickLine = atsPickCode===g.home ? lbl.home : lbl.away;
+      var atsPickProb = Math.max(pHomeCovers,pAwayCovers);
+
+      var atsCallHtml = "";
+      if(final){
+        var homeMargin = g.hs-g.as;
+        if(homeMargin!==line){
+          var atsWinnerCode = homeMargin>line ? g.home : g.away;
+          var atsCorrect = atsWinnerCode===atsPickCode;
+          atsCallHtml = '<div class="call '+(atsCorrect?'good':'bad')+'">'+(atsCorrect?'&#10003; covered as picked':'&#10007; did not cover')+'</div>';
+        }
+      }
+
+      // only real market lines, and only a real disagreement with the market,
+      // are eligible for the confidence ranking: a model-only fair-value line
+      // covers at ~50% by construction, and backtesting shows picks within a
+      // few tenths of a point of the closing line carry no signal at all.
+      if(hasMarket && Math.abs(mu-line)>=MIN_EDGE_SPREAD){
+        confidentSpreads.push({pickCode:atsPickCode, pickLabel:atsPickCode, detail:atsPickLine+" ATS",
+          oppCode:"vs "+(atsPickCode===g.home?g.away:g.home), prob:atsPickProb});
+      }
+
+      // total points: real posted total when we have one, otherwise the
+      // model's own scoring-rate estimate (clearly marked as such).
+      var totalMu = computeTotalMu(g.home, g.away);
+      var hasTotalMarket = g.totalLine!==null;
+      var totalLineVal = hasTotalMarket ? g.totalLine : (Math.round(totalMu*2)/2);
+      var pOver = overProb(totalMu, totalLineVal);
+      var pUnder = 1-pOver;
+      var totalPickSide = pOver>=pUnder ? "Over" : "Under";
+      var totalPickProb = Math.max(pOver,pUnder);
+
+      // only real market totals, with a real disagreement, are eligible for
+      // the confidence ranking -- same reasoning as spreads above.
+      if(hasTotalMarket && Math.abs(totalMu-totalLineVal)>=MIN_EDGE_TOTAL){
+        confidentTotals.push({pickCode:totalPickSide, pickLabel:totalPickSide+" "+totalLineVal.toFixed(1),
+          detail:"total points", oppCode:g.away+" @ "+g.home, prob:totalPickProb});
+      }
+
+      var totalCallHtml = "";
+      if(final){
+        var actualTotalPts = g.hs+g.as;
+        if(actualTotalPts!==totalLineVal){
+          var actualSide = actualTotalPts>totalLineVal ? "Over" : "Under";
+          var totalCorrect = actualSide===totalPickSide;
+          totalCallHtml = '<div class="call '+(totalCorrect?'good':'bad')+'">'+(totalCorrect?'&#10003; hit as picked':'&#10007; missed')+'</div>';
+        }
+      }
+
+      html += '<div class="game-card">' +
+        '<div class="game-top">' +
+          '<div class="game-teams">' +
+            '<span class="swatch" style="background:'+tAway[1]+'"></span><span class="code" style="font-family:Orbitron,sans-serif;font-size:18px;">'+g.away+'</span>' +
+            '<span class="vs">@</span>' +
+            '<span class="swatch" style="background:'+tHome[1]+'"></span><span class="code" style="font-family:Orbitron,sans-serif;font-size:18px;">'+g.home+'</span>' +
+          '</div>' +
+          '<span class="status-pill '+(final?'final':'upcoming')+'">'+(final?'FINAL':'UPCOMING')+'</span>' +
+        '</div>' +
+        (final ? '<div class="score-line">'+g.away+' '+g.as+' &ndash; '+g.hs+' '+g.home+'</div>' : '') +
+        callHtml +
+        '<div class="splitbar" id="ml-splitbar-'+idx+'"><span style="width:'+(pAway*100)+'%; background:'+tAway[1]+'"></span><span style="width:'+(pHome*100)+'%; background:'+tHome[1]+'"></span></div>' +
+        '<div class="game-prob-row"><span id="ml-away-prob-'+idx+'">'+g.away+' '+fmtPct(pAway)+'</span><span id="ml-home-prob-'+idx+'">'+g.home+' '+fmtPct(pHome)+'</span></div>' +
+        (final ? '' :
+          '<div class="qb-toggle-row">' +
+            '<label class="qb-check"><input type="checkbox" class="qb-toggle" data-idx="'+idx+'" data-side="away"> '+g.away+' backup QB</label>' +
+            '<label class="qb-check"><input type="checkbox" class="qb-toggle" data-idx="'+idx+'" data-side="home"> '+g.home+' backup QB</label>' +
+          '</div>'
+        ) +
+        '<div class="ats-block">' +
+          '<div class="ats-head"><span>Against the spread</span><span class="src">'+(hasMarket?'market close':'model estimate, no market yet')+'</span></div>' +
+          '<div class="ats-line-row">' +
+            '<label class="ats-line-label" for="line-input-'+idx+'">Home line</label>' +
+            '<input type="number" step="0.5" class="ats-line-input" id="line-input-'+idx+'" value="'+line.toFixed(1)+'" ' +
+              'data-idx="'+idx+'" data-default="'+line.toFixed(1)+'" data-home="'+g.home+'" data-away="'+g.away+'" ' +
+              'data-neutral="'+(g.neutral?1:0)+'" data-final="'+(final?1:0)+'" data-hs="'+(final?g.hs:"")+'" data-as="'+(final?g.as:"")+'">' +
+            '<button type="button" class="line-btn reset-line-btn" data-idx="'+idx+'">Reset</button>' +
+          '</div>' +
+          '<p class="ats-line-hint">Positive favors '+g.home+', negative favors '+g.away+' &mdash; edit the line to see the model\'s confidence shift.</p>' +
+          '<div class="splitbar" id="ats-splitbar-'+idx+'"><span style="width:'+(pAwayCovers*100)+'%; background:'+tAway[1]+'"></span><span style="width:'+(pHomeCovers*100)+'%; background:'+tHome[1]+'"></span></div>' +
+          '<div class="game-prob-row"><span id="ats-away-prob-'+idx+'">'+g.away+' '+fmtPct(pAwayCovers)+'</span><span id="ats-home-prob-'+idx+'">'+g.home+' '+fmtPct(pHomeCovers)+'</span></div>' +
+          '<div class="ats-verdict" id="ats-verdict-'+idx+'">Pick: <b>'+atsPickCode+' '+atsPickLine+'</b> to cover ('+fmtPct(atsPickProb)+')</div>' +
+          '<div id="ats-call-'+idx+'">'+atsCallHtml+'</div>' +
+        '</div>' +
+        '<div class="ats-block">' +
+          '<div class="ats-head"><span>Total points</span><span class="src">'+(hasTotalMarket?'market close':'model estimate, no market yet')+'</span></div>' +
+          '<div class="ats-line-row">' +
+            '<label class="ats-line-label" for="total-input-'+idx+'">O/U line</label>' +
+            '<input type="number" step="0.5" min="0" class="total-line-input" id="total-input-'+idx+'" value="'+totalLineVal.toFixed(1)+'" ' +
+              'data-idx="'+idx+'" data-default="'+totalLineVal.toFixed(1)+'" data-home="'+g.home+'" data-away="'+g.away+'" ' +
+              'data-final="'+(final?1:0)+'" data-actual="'+(final?(g.hs+g.as):"")+'">' +
+            '<button type="button" class="line-btn reset-total-btn" data-idx="'+idx+'">Reset</button>' +
+          '</div>' +
+          '<p class="ats-line-hint">Model total: '+totalMu.toFixed(1)+' pts &mdash; edit the line to see the over/under confidence shift.</p>' +
+          '<div class="splitbar" id="total-splitbar-'+idx+'"><span style="width:'+(pUnder*100)+'%; background:var(--div-neg)"></span><span style="width:'+(pOver*100)+'%; background:var(--div-pos)"></span></div>' +
+          '<div class="game-prob-row"><span id="total-under-prob-'+idx+'">Under '+fmtPct(pUnder)+'</span><span id="total-over-prob-'+idx+'">Over '+fmtPct(pOver)+'</span></div>' +
+          '<div class="ats-verdict" id="total-verdict-'+idx+'">Pick: <b>'+totalPickSide+' '+totalLineVal.toFixed(1)+'</b> ('+fmtPct(totalPickProb)+')</div>' +
+          '<div id="total-call-'+idx+'">'+totalCallHtml+'</div>' +
+        '</div>' +
+      '</div>';
+    });
+    out.innerHTML = html;
+
+    renderPickTiles("confident-winners", confidentWinners, "Moneyline", "to win", week,
+      "No games this week.", false);
+    renderPickTiles("closest-calls", confidentSpreads, "Spread", "to cover", week,
+      "No spread disagrees with the market by enough to qualify this week.", true);
+    renderPickTiles("confident-totals", confidentTotals, "Total", "to hit", week,
+      "No total disagrees with the market by enough to qualify this week.", true);
+  }
+
+  function renderPickTiles(containerId, items, marketLabel, suffixLabel, week, emptyMsg, markBest){
+    items.sort(function(a,b){ return b.prob - a.prob; });
+    var top3 = items.slice(0,3);
+    var html = "";
+    top3.forEach(function(c, i){
+      var swatchColor = TEAMS.hasOwnProperty(c.pickCode) ? TEAMS[c.pickCode][1] :
+        (c.pickCode==="Over" ? "var(--div-pos)" : "var(--div-neg)");
+      var badge = (markBest && i===0) ?
+        '<span class="pill accent">Best bet</span>' : '';
+      html += '<div class="pick-card'+(markBest && i===0 ? ' pick-card-best' : '')+'">' +
+        '<div class="pk-market">'+marketLabel+badge+'</div>' +
+        '<div class="pk-team"><span class="swatch" style="background:'+swatchColor+'"></span><span class="code">'+c.pickLabel+'</span></div>' +
+        '<div class="pk-vs">'+c.detail+' &middot; '+c.oppCode+' &middot; Week '+week+'</div>' +
+        '<div class="pk-prob">'+fmtPct(c.prob)+'<span>'+suffixLabel+'</span></div>' +
+      '</div>';
+    });
+    document.getElementById(containerId).innerHTML = html || '<p class="desc">'+emptyMsg+'</p>';
+  }
+
+  // ---------------- accuracy ----------------
+  function setupAccuracy(){
+    var sel = document.getElementById("sel-startseason");
+    var anchors = [1999,2005,2010,2015,2020];
+    anchors.forEach(function(y){
+      if(y>=state.seasons[0] && y<=state.seasons[state.seasons.length-1]){
+        var o=document.createElement("option"); o.value=y; o.textContent = (y===1999?"1999 (all seasons)":y); sel.appendChild(o);
+      }
+    });
+    sel.value = 2015;
+    sel.addEventListener("change", renderAccuracy);
+    renderAccuracy();
+  }
+
+  function renderAccuracy(){
+    var start = +document.getElementById("sel-startseason").value;
+    var hist = state.history.filter(function(h){ return h.season>=start; });
+    if(!hist.length) return;
+
+    var correct=0, homeCorrect=0, logLoss=0, brier=0;
+    hist.forEach(function(h){
+      var predictedHome = h.pHome>=0.5;
+      var actualHome = h.actual>=0.5;
+      if(predictedHome===actualHome) correct++;
+      if(actualHome) homeCorrect++;
+      var p = Math.min(Math.max(h.pHome,1e-9),1-1e-9);
+      logLoss += -(h.actual*Math.log(p) + (1-h.actual)*Math.log(1-p));
+      brier += Math.pow(p-h.actual,2);
+    });
+    var n = hist.length;
+    document.getElementById("acc-value").textContent = (correct/n*100).toFixed(1)+"%";
+    document.getElementById("acc-note").textContent = n.toLocaleString()+" games, "+start+"–"+state.seasons[state.seasons.length-1];
+    document.getElementById("acc-baseline").textContent = (homeCorrect/n*100).toFixed(1)+"%";
+    document.getElementById("acc-logloss").textContent = (logLoss/n).toFixed(3);
+    document.getElementById("acc-brier").textContent = (brier/n).toFixed(3);
+
+    var atsN=0, atsCorrect=0;
+    hist.forEach(function(h){
+      if(h.spreadLine===null) return;
+      var homeMargin = h.hs-h.as;
+      if(homeMargin===h.spreadLine) return; // push, void
+      var actualCoverHome = homeMargin>h.spreadLine;
+      var pickHome = h.predMargin>=h.spreadLine;
+      atsN++;
+      if(pickHome===actualCoverHome) atsCorrect++;
+    });
+    document.getElementById("acc-ats").textContent = atsN ? (atsCorrect/atsN*100).toFixed(1)+"%" : "n/a";
+    document.getElementById("acc-ats-note").textContent = atsN ? (atsN.toLocaleString()+" lined games") : "no closing lines in range";
+
+    var totalN=0, totalCorrect=0;
+    hist.forEach(function(h){
+      if(h.totalLine===null) return;
+      if(h.actualTotal===h.totalLine) return; // push, void
+      var actualOver = h.actualTotal>h.totalLine;
+      var pickOver = h.predTotal>=h.totalLine;
+      totalN++;
+      if(pickOver===actualOver) totalCorrect++;
+    });
+    document.getElementById("acc-total").textContent = totalN ? (totalCorrect/totalN*100).toFixed(1)+"%" : "n/a";
+    document.getElementById("acc-total-note").textContent = totalN ? (totalN.toLocaleString()+" lined games") : "no closing lines in range";
+
+    // per-season series
+    var bySeason = {};
+    hist.forEach(function(h){
+      bySeason[h.season] = bySeason[h.season] || {n:0, correct:0, homeCorrect:0};
+      var b = bySeason[h.season];
+      b.n++;
+      if((h.pHome>=0.5) === (h.actual>=0.5)) b.correct++;
+      if(h.actual>=0.5) b.homeCorrect++;
+    });
+    var seasons = Object.keys(bySeason).map(Number).sort(function(a,b){return a-b;});
+    var series = seasons.map(function(s){
+      var b = bySeason[s];
+      return {season:s, acc:b.correct/b.n, base:b.homeCorrect/b.n, n:b.n};
+    });
+    drawAccuracyChart(series);
+  }
+
+  function drawAccuracyChart(series){
+    var svg = document.getElementById("acc-chart");
+    var W=640,H=220, padL=34, padR=10, padT=14, padB=26;
+    var plotW = W-padL-padR, plotH = H-padT-padB;
+    var minY=0.3, maxY=0.8;
+
+    function x(i){ return padL + (series.length<=1 ? plotW/2 : i/(series.length-1)*plotW); }
+    function y(v){ return padT + (1-(v-minY)/(maxY-minY))*plotH; }
+
+    var parts = [];
+
+    // gridlines + y labels
+    [0.3,0.4,0.5,0.6,0.7,0.8].forEach(function(v){
+      var yy=y(v);
+      parts.push('<line class="gridline" x1="'+padL+'" x2="'+(W-padR)+'" y1="'+yy+'" y2="'+yy+'"/>');
+      parts.push('<text class="axis-text" x="'+(padL-8)+'" y="'+(yy+3)+'" text-anchor="end">'+Math.round(v*100)+'%</text>');
+    });
+
+    // x labels (thin out if many)
+    var stride = Math.ceil(series.length/9);
+    series.forEach(function(d,i){
+      if(i%stride===0 || i===series.length-1){
+        parts.push('<text class="axis-text" x="'+x(i)+'" y="'+(H-8)+'" text-anchor="middle">'+d.season+'</text>');
+      }
+    });
+
+    // baseline dashed path
+    var baseD = series.map(function(d,i){ return (i===0?"M":"L")+x(i).toFixed(1)+","+y(d.base).toFixed(1); }).join(" ");
+    parts.push('<path d="'+baseD+'" fill="none" stroke="var(--ink-faint)" stroke-width="2" stroke-dasharray="4 4"/>');
+
+    // model line
+    var accD = series.map(function(d,i){ return (i===0?"M":"L")+x(i).toFixed(1)+","+y(d.acc).toFixed(1); }).join(" ");
+    parts.push('<path d="'+accD+'" fill="none" stroke="var(--brand)" stroke-width="2.5"/>');
+
+    // dots (hoverable)
+    series.forEach(function(d,i){
+      parts.push('<circle class="acc-dot" data-i="'+i+'" cx="'+x(i).toFixed(1)+'" cy="'+y(d.acc).toFixed(1)+'" r="9" fill="transparent"/>');
+      parts.push('<circle cx="'+x(i).toFixed(1)+'" cy="'+y(d.acc).toFixed(1)+'" r="3.5" fill="var(--brand)"/>');
+    });
+
+    svg.innerHTML = parts.join("");
+
+    var tip = document.getElementById("acc-tooltip");
+    var wrap = svg.parentElement;
+    svg.querySelectorAll(".acc-dot").forEach(function(dot){
+      var d = series[+dot.dataset.i];
+      function show(clientX, clientY){
+        var rect = wrap.getBoundingClientRect();
+        tip.style.left = (clientX-rect.left)+"px";
+        tip.style.top = (clientY-rect.top)+"px";
+        tip.textContent = d.season+": "+(d.acc*100).toFixed(1)+"% ("+d.n+" games)";
+        tip.classList.add("show");
+      }
+      dot.addEventListener("mouseenter", function(e){ show(e.clientX, e.clientY); });
+      dot.addEventListener("mousemove", function(e){ show(e.clientX, e.clientY); });
+      dot.addEventListener("mouseleave", function(){ tip.classList.remove("show"); });
+      dot.addEventListener("touchstart", function(e){
+        var t = e.touches[0]; show(t.clientX, t.clientY);
+      }, {passive:true});
+    });
+  }
+
+})();
+</script>
+
+</body>
+</html>
